@@ -3,6 +3,7 @@ name: Tests
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   package:
@@ -24,10 +25,53 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: redis, pdo_sqlite, pcntl, posix
+          extensions: redis, pdo_sqlite, pcntl, posix, zip
           coverage: none
       - run: sudo apt-get update && sudo apt-get install -y redis-server
       - run: composer require --dev 'orchestra/testbench:${{ matrix.testbench }}' --no-interaction --with-all-dependencies
       - run: composer check
       - run: composer test:concurrency
       - run: composer benchmark:smoke
+
+  distribution:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.4', '8.5']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: redis, pdo_sqlite, pcntl, posix, zip
+          coverage: none
+      - run: sudo apt-get update && sudo apt-get install -y redis-server
+      # No composer require here: the archive and installed files must match this exact checkout.
+      - run: composer install --no-interaction --prefer-dist
+      - run: composer check
+      - run: composer smoke
+      - run: composer consumer:redis
+      - run: composer docs:check
+      - run: composer package:check
+      - run: composer upgrade:check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: distribution-evidence-php-${{ matrix.php }}
+          path: |
+            research/execution/next-beta/*-result.json
+            research/execution/next-beta/logs/*.json
+            research/execution/next-beta/distribution/*.zip
+          if-no-files-found: error
+
+  acceptance:
+    if: always()
+    needs: [package, distribution]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every verification job
+        env:
+          PACKAGE_RESULT: ${{ needs.package.result }}
+          DISTRIBUTION_RESULT: ${{ needs.distribution.result }}
+        run: test "$PACKAGE_RESULT" = success && test "$DISTRIBUTION_RESULT" = success

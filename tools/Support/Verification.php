@@ -8,6 +8,36 @@ use RuntimeException;
 
 final class Verification
 {
+    public static function evidenceDirectory(string $rootDirectory): string
+    {
+        return self::directory($rootDirectory.'/research/execution/next-beta');
+    }
+
+    /** Run production checks without a Redis extension, while retaining required shared PHP modules. */
+    public static function portablePhp(string $rootDirectory): array
+    {
+        static $arguments;
+        if ($arguments !== null) {
+            return $arguments;
+        }
+        $arguments = [PHP_BINARY, '-n'];
+        $builtInExtensions = json_decode(self::run(
+            [...$arguments, '-r', 'echo json_encode(get_loaded_extensions());'],
+            $rootDirectory,
+            self::evidenceDirectory($rootDirectory).'/logs/php-built-in-extensions.log',
+        ), true, flags: JSON_THROW_ON_ERROR);
+        foreach (get_loaded_extensions() as $extension) {
+            if (in_array($extension, $builtInExtensions, true) || in_array(strtolower($extension), ['redis', 'xdebug', 'zend opcache'], true)) {
+                continue;
+            }
+            $extensionPath = ini_get('extension_dir').'/'.strtolower($extension).'.'.PHP_SHLIB_SUFFIX;
+            self::require(is_file($extensionPath), 'Cannot locate shared extension for the no-Redis PHP process: '.$extension);
+            array_push($arguments, '-d', 'extension='.$extensionPath);
+        }
+
+        return $arguments;
+    }
+
     public static function require(bool $condition, string $message): void
     {
         if (! $condition) {

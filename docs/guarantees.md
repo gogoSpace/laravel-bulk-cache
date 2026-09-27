@@ -38,4 +38,6 @@ Portable storage inherits Laravel store error behavior. In particular, FileStore
 
 Item payloads have logical expiry. Scope generation metadata can outlive them, and scope invalidation can leave unreachable payloads. Redis expires payload keys; file caches may leave expired, unread files on disk until separate cleanup. The prefix and dimensions must therefore have deliberate, bounded cardinality. Invalidation is a visibility operation; it is not guaranteed physical deletion of every historical byte.
 
+See the executable [retention procedure](retention.md) for bounded physical erasure, metadata sampling and fencing or draining old producers.
+
 Changing driver creates a separate namespace. Changing the loader class without changing the dataset identity does not invalidate values. Use explicit versioned dataset names or version dimensions when deploying a different data contract.

@@ -8,12 +8,14 @@ use GogoSpace\BulkCache\Stores\PortableStore;
 use GogoSpace\BulkCache\Support\Clock;
 use GogoSpace\BulkCache\Support\LoadContext;
 use GogoSpace\BulkCache\Support\Options;
+use GogoSpace\BulkCache\Tools\RedisBenchmark;
 use GogoSpace\BulkCache\Tools\Verification;
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\Repository;
 
 require dirname(__DIR__).'/vendor/autoload.php';
 require __DIR__.'/Support/Verification.php';
+require __DIR__.'/Support/RedisBenchmark.php';
 
 final class MeasuredRepository extends Repository
 {
@@ -113,5 +115,9 @@ foreach ([1, 100, 1000] as $count) {
 }
 
 $report = ['php' => PHP_VERSION, 'operating_system' => PHP_OS_FAMILY, 'store' => 'array with serialization', 'batch_size' => $configuration['batch_size'], 'source' => 'deterministic in-memory synthetic values', 'note' => 'One sample per variant/phase; method counts are not network round trips. Neither variant supplies distributed publication guards. No speedup is inferred.', 'results' => $results];
-Verification::writeJson(dirname(__DIR__).'/research/execution/logs/benchmark.json', $report);
+Verification::writeJson(dirname(__DIR__).'/research/execution/next-beta/logs/benchmark-array.json', $report);
 echo json_encode($report, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n";
+
+$redisReport = (new RedisBenchmark)->run();
+Verification::writeJson(dirname(__DIR__).'/research/execution/next-beta/logs/benchmark-redis.json', $redisReport);
+echo json_encode($redisReport, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n";

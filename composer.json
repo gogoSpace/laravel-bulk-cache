@@ -6,6 +6,7 @@
     "require": {
         "php": "^8.3",
         "illuminate/cache": "^12.0 || ^13.0",
+        "illuminate/console": "^12.0 || ^13.0",
         "illuminate/contracts": "^12.0 || ^13.0",
         "illuminate/support": "^12.0 || ^13.0"
     },
@@ -50,7 +51,9 @@
         "smoke": "@php tools/smoke.php",
         "docs:check": "@php tools/docs.php",
         "package:check": "@php tools/package.php",
-        "benchmark:smoke": "@php tools/benchmark.php"
+        "benchmark:smoke": "@php tools/benchmark.php",
+        "upgrade:check": "@php tools/upgrade.php",
+        "consumer:redis": "@php tools/consumer-redis.php"
     },
     "archive": {
         "exclude": [

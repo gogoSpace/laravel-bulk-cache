@@ -8,6 +8,12 @@ return [
         ? 'application:'.hash('sha256', serialize([env('APP_NAME', 'laravel'), env('APP_ENV', 'production'), env('APP_KEY')]))
         : null),
     'connection' => env('BULK_CACHE_REDIS_CONNECTION', 'default'),
+    // Fail before I/O if a dataset requires atomic publication guards.
+    'require_guarded' => false,
+    // Required scope dimensions: ['tenant' => 'int', 'user' => 'int'].
+    'dimensions' => [],
+    // Dispatch safe, aggregate CacheEvent observations through Laravel events.
+    'events' => false,
     'batch_size' => 100,
     'max_keys' => 10000,
     'max_payload_bytes' => 1048576,

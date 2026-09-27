@@ -45,16 +45,16 @@ final readonly class Envelope
     public static function decode(string $payload, int $maximumBytes): self
     {
         if (strlen($payload) > $maximumBytes) {
-            throw new StoreException('Stored payload exceeds max_payload_bytes.');
+            throw new StoreException('Stored payload exceeds max_payload_bytes.', phase: 'read', outcome: 'not_applicable');
         }
         $data = @unserialize($payload, ['allowed_classes' => false, 'max_depth' => 40]);
         if (! is_array($data) || array_keys($data) !== range(0, 5) || $data[0] !== 1 || ! is_float($data[2]) || ! is_finite($data[2]) || ! is_int($data[3]) || $data[3] < 1 || ! is_int($data[4]) || $data[4] < 0 || $data[3] + $data[4] > 31536000 || ! is_bool($data[5])) {
-            throw new StoreException('Stored payload is not a supported cache envelope.');
+            throw new StoreException('Stored payload is not a supported cache envelope.', phase: 'read', outcome: 'not_applicable');
         }
         try {
             self::validateValue($data[1]);
         } catch (LoaderException $exception) {
-            throw new StoreException('Stored payload contains unsupported data.', previous: $exception);
+            throw new StoreException('Stored payload contains unsupported data.', previous: $exception, phase: 'read', outcome: 'not_applicable');
         }
 
         return new self($data[1], $data[2], $data[3], $data[4], $data[5]);

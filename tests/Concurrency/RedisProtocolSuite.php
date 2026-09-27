@@ -6,12 +6,15 @@ namespace GogoSpace\BulkCache\Tests\Concurrency;
 
 use GogoSpace\BulkCache\BulkCacheManager;
 use GogoSpace\BulkCache\Engine;
+use GogoSpace\BulkCache\Exceptions\CleanupException;
 use GogoSpace\BulkCache\Exceptions\ConfigurationException;
 use GogoSpace\BulkCache\Exceptions\StoreException;
 use GogoSpace\BulkCache\Exceptions\TimeoutException;
+use GogoSpace\BulkCache\Freshness;
 use GogoSpace\BulkCache\RefreshScheduler;
 use GogoSpace\BulkCache\Stores\RedisStore;
 use GogoSpace\BulkCache\Support\Claim;
+use GogoSpace\BulkCache\Support\Clock;
 use GogoSpace\BulkCache\Support\Identity;
 use GogoSpace\BulkCache\Support\LoadContext;
 use GogoSpace\BulkCache\Support\Options;
@@ -31,13 +34,15 @@ final class RedisProtocolSuite
 {
     private readonly string $prefix;
 
-    public function __construct(private readonly RedisServer $server, private readonly string $client)
+    public function __construct(private readonly RedisServer $server, private readonly string $client, private readonly ?string $configurationPath = null)
     {
         $this->prefix = 'suite:'.$client.':'.bin2hex(random_bytes(6)).':';
     }
 
-    public function run(): void
+    /** @return list<string> */
+    public function run(): array
     {
+        $executed = [];
         foreach ([
             'rawPayloadsAndIsolation', 'twentyConcurrentReaders', 'overlappingSets',
             'reverseOverlap', 'cyclicOverlap', 'rereadAfterClaim', 'expiryAndDelayedRelease',
@@ -45,10 +50,15 @@ final class RedisProtocolSuite
             'ambiguousOperations', 'writeFailures', 'partialPublication', 'scriptCacheReset',
             'publicApiConcurrentReaders', 'publicApiOverlap', 'publicApiRejectedResults', 'publicApiBoundedWaiting',
             'clientOptions', 'unsupportedTopologies', 'deniedScript', 'serverOutage',
+            'batchBoundsAndLostReplies', 'batchPartialPublication', 'batchUnknownPublication',
+            'batchReleaseFailures', 'batchPartialInvalidation', 'batchGuards', 'batchUnknownClaims', 'batchEnginePartialProgress', 'batchEngineCleanupProgress',
         ] as $scenario) {
             $this->{$scenario}();
             fwrite(STDOUT, $this->client.' '.$scenario." passed\n");
+            $executed[] = $scenario;
         }
+
+        return $executed;
     }
 
     private function rawPayloadsAndIsolation(): void
@@ -576,7 +586,7 @@ final class RedisProtocolSuite
     {
         $replica = new RedisServer($this->server->port);
         try {
-            $suite = new self($replica, $this->client);
+            $suite = new self($replica, $this->client, $this->configurationPath);
             $this->throwsConfigurationFailure(fn () => $suite->store());
         } finally {
             $replica->stop();
@@ -614,11 +624,222 @@ final class RedisProtocolSuite
     private function serverOutage(): void
     {
         $server = new RedisServer;
-        $suite = new self($server, $this->client);
+        $suite = new self($server, $this->client, $this->configurationPath);
         $store = $suite->store();
         $server->stop();
         $this->throwsStoreFailure(fn () => $store->readMany('outage', ['item']));
         $this->throwsStoreFailure(fn () => $store->claim('outage', 'item', 1000));
+    }
+
+    private function batchEnginePartialProgress(): void
+    {
+        $scope = 'batch-engine-partial';
+        $store = $this->store();
+        $engine = new Engine(new Clock, new LoadContext);
+        try {
+            $engine->read($store, $scope, ['first', 'second', 'third', 'fourth'], Freshness::seconds(60), function (array $keys) use ($scope): array {
+                if (in_array('fourth', $keys, true)) {
+                    $this->raw(['LPUSH', $this->physical($scope, hash('sha256', 'fourth'), 'value'), 'corrupt']);
+                }
+
+                return array_fill_keys($keys, 'value');
+            }, new Options($this->configuration(['batch_size' => 2])), false);
+            throw new RuntimeException('The second batch must fail after its first write.');
+        } catch (StoreException $exception) {
+            $this->same('publish', $exception->phase);
+            $this->same('partial', $exception->outcome);
+            $this->same(3, $exception->completedOperations);
+        }
+        $tokens = array_map(fn (string $key): string => hash('sha256', $key), ['first', 'second', 'third']);
+        $this->same(3, count(array_filter($store->readMany($scope, $tokens))));
+    }
+
+    private function batchEngineCleanupProgress(): void
+    {
+        $scope = 'batch-engine-cleanup';
+        $store = $this->store();
+        $engine = new Engine(new Clock, new LoadContext);
+        try {
+            $engine->read($store, $scope, ['first', 'second', 'third', 'fourth'], Freshness::seconds(60), function (array $keys) use ($scope): array {
+                if (in_array('fourth', $keys, true)) {
+                    $lease = $this->physical($scope, hash('sha256', 'fourth'), 'lease');
+                    $this->raw(['DEL', $lease]);
+                    $this->raw(['LPUSH', $lease, 'corrupt']);
+                }
+
+                return array_fill_keys($keys, 'value');
+            }, new Options($this->configuration(['batch_size' => 2])), false);
+            throw new RuntimeException('Publication and cleanup must both fail.');
+        } catch (CleanupException $exception) {
+            $this->assert($exception->primaryFailure instanceof StoreException, 'The publication error was lost.');
+            $this->same('publish', $exception->primaryFailure->phase);
+            $this->same('partial', $exception->primaryFailure->outcome);
+            $this->same(3, $exception->primaryFailure->completedOperations);
+            $this->same(1, count($exception->cleanupFailures));
+            $this->same('release', $exception->cleanupFailures[0]->phase);
+        }
+        $tokens = array_map(fn (string $key): string => hash('sha256', $key), ['first', 'second', 'third']);
+        $this->same(3, count(array_filter($store->readMany($scope, $tokens))));
+    }
+
+    private function batchBoundsAndLostReplies(): void
+    {
+        $connection = $this->connection(true);
+        $client = $connection->client();
+        $store = new RedisStore($connection, $this->prefix);
+        $keys = array_map(fn (int $number): string => 'item-'.$number, range(1, 250));
+        $before = $client->mutationCalls;
+        $claims = $store->claimMany('batch-bounds', $keys, 5000);
+        $this->same(3, $client->mutationCalls - $before);
+        $publications = [];
+        foreach ($claims as $key => $claim) {
+            $this->assert($claim instanceof Claim, 'Expected every batched claim.');
+            $publications[$key] = ['claim' => $claim, 'payload' => $key, 'retention_milliseconds' => 10000];
+        }
+        $before = $client->mutationCalls;
+        $client->loseMutationAt = $before + 2;
+        $this->same(array_fill_keys($keys, true), $store->publishMany('batch-bounds', $publications));
+        $this->same(3, $client->mutationCalls - $before);
+        $this->same(array_combine($keys, $keys), $store->readMany('batch-bounds', $keys));
+        $store->releaseMany('batch-bounds', $claims);
+    }
+
+    private function batchPartialPublication(): void
+    {
+        $store = $this->store();
+        $claims = $store->claimMany('batch-partial', ['first', 'second', 'third'], 5000);
+        $this->raw(['LPUSH', $this->physical('batch-partial', 'second', 'value'), 'corrupt']);
+        $publications = [];
+        foreach ($claims as $key => $claim) {
+            $publications[$key] = ['claim' => $claim, 'payload' => 'value-'.$key, 'retention_milliseconds' => 10000];
+        }
+        try {
+            $store->publishMany('batch-partial', $publications);
+            throw new RuntimeException('A partial Lua mutation must fail.');
+        } catch (StoreException $exception) {
+            $this->same('publish', $exception->phase);
+            $this->same('partial', $exception->outcome);
+            $this->same(1, $exception->completedOperations);
+            $this->assert($exception->getPrevious() instanceof StoreException, 'Original mutation error was lost.');
+        }
+        $this->same(['first' => 'value-first', 'third' => null], $store->readMany('batch-partial', ['first', 'third']));
+        $store->releaseMany('batch-partial', $claims);
+        $this->same(0, $this->raw(['EXISTS', $this->physical('batch-partial', 'third', 'lease')]));
+    }
+
+    private function batchUnknownPublication(): void
+    {
+        $connection = $this->connection(true);
+        $client = $connection->client();
+        $store = new RedisStore($connection, $this->prefix);
+        $claims = $store->claimMany('batch-unknown-publication', ['first', 'second'], 5000);
+        $publications = [];
+        foreach ($claims as $key => $claim) {
+            $publications[$key] = ['claim' => $claim, 'payload' => 'saved', 'retention_milliseconds' => 10000];
+        }
+        $before = $client->mutationCalls;
+        $client->loseNextReply = true;
+        $client->failConfirmation = true;
+        try {
+            $store->publishMany('batch-unknown-publication', $publications);
+            throw new RuntimeException('Unknown publication must fail.');
+        } catch (StoreException $exception) {
+            $this->same('publish', $exception->phase);
+            $this->same('unknown', $exception->outcome);
+            $this->same(0, $exception->completedOperations);
+        }
+        $this->same($before + 1, $client->mutationCalls);
+        $this->same(['first' => 'saved', 'second' => 'saved'], $this->store()->readMany('batch-unknown-publication', ['first', 'second']));
+    }
+
+    private function batchReleaseFailures(): void
+    {
+        $store = $this->store();
+        $claims = $store->claimMany('batch-release', ['first', 'second', 'third'], 5000);
+        foreach (['first', 'third'] as $key) {
+            $this->raw(['DEL', $this->physical('batch-release', $key, 'lease')]);
+            $this->raw(['LPUSH', $this->physical('batch-release', $key, 'lease'), 'corrupt']);
+        }
+        try {
+            $store->releaseMany('batch-release', $claims);
+            throw new RuntimeException('Every cleanup failure must be retained.');
+        } catch (CleanupException $exception) {
+            $this->same(null, $exception->primaryFailure);
+            $this->same(2, count($exception->cleanupFailures));
+            foreach ($exception->cleanupFailures as $failure) {
+                $this->assert($failure instanceof StoreException, 'Cleanup error must be typed.');
+                $this->same('release', $failure->phase);
+                $this->same('not_applied', $failure->outcome);
+            }
+        }
+        $this->same(0, $this->raw(['EXISTS', $this->physical('batch-release', 'second', 'lease')]));
+    }
+
+    private function batchPartialInvalidation(): void
+    {
+        $connection = $this->connection(true);
+        $client = $connection->client();
+        $store = new RedisStore($connection, $this->prefix);
+        $keys = array_map(fn (int $number): string => 'item-'.$number, range(1, 250));
+        $claims = $store->claimMany('batch-invalidate', $keys, 5000);
+        $client->loseMutationAt = $client->mutationCalls + 2;
+        try {
+            $store->invalidateMany('batch-invalidate', $keys);
+            throw new RuntimeException('Lost invalidation reply must fail.');
+        } catch (StoreException $exception) {
+            $this->same('invalidate', $exception->phase);
+            $this->same('partial', $exception->outcome);
+            $this->same(100, $exception->completedOperations);
+        }
+        $this->same(0, $this->raw(['EXISTS', $this->physical('batch-invalidate', 'item-200', 'lease')]));
+        $this->same(1, $this->raw(['EXISTS', $this->physical('batch-invalidate', 'item-250', 'lease')]));
+        $store->invalidateMany('batch-invalidate', $keys);
+        $store->releaseMany('batch-invalidate', $claims);
+    }
+
+    private function batchGuards(): void
+    {
+        $store = $this->store();
+        foreach (['item', 'scope', 'lease'] as $reason) {
+            $scope = 'batch-guards-'.$reason;
+            $claims = $store->claimMany($scope, ['first', 'second'], $reason === 'lease' ? 100 : 5000);
+            if ($reason === 'item') {
+                $store->invalidateMany($scope, ['second']);
+            } elseif ($reason === 'scope') {
+                $store->invalidateScope($scope);
+            } else {
+                $this->awaitLeaseExpiry($scope, 'first');
+            }
+            $publications = [];
+            foreach ($claims as $key => $claim) {
+                $publications[$key] = ['claim' => $claim, 'payload' => 'old', 'retention_milliseconds' => 10000];
+            }
+            $this->same(['first' => $reason === 'item', 'second' => false], $store->publishMany($scope, $publications));
+            $successor = $this->owned($store, $scope, 'second');
+            $store->releaseMany($scope, $claims);
+            $this->assert($store->publish($scope, 'second', $successor, 'new', 10000), 'Old batch cleanup removed successor ownership.');
+        }
+    }
+
+    private function batchUnknownClaims(): void
+    {
+        $connection = $this->connection(true);
+        $client = $connection->client();
+        $store = new RedisStore($connection, $this->prefix);
+        $keys = array_map(fn (int $number): string => 'item-'.$number, range(1, 250));
+        $client->loseMutationAt = 2;
+        try {
+            $store->claimMany('batch-unknown-claims', $keys, 100);
+            throw new RuntimeException('Unknown claims must not reach a loader.');
+        } catch (StoreException $exception) {
+            $this->same('claim', $exception->phase);
+            $this->same('partial', $exception->outcome);
+            $this->same(100, $exception->completedOperations);
+        }
+        $this->same(0, $this->raw(['EXISTS', $this->physical('batch-unknown-claims', 'item-1', 'lease')]));
+        $this->same(null, $store->claim('batch-unknown-claims', 'item-200', 100));
+        $this->awaitLeaseExpiry('batch-unknown-claims', 'item-200');
+        $this->assert($store->claim('batch-unknown-claims', 'item-200', 100) instanceof Claim, 'Unknown leases did not expire.');
     }
 
     private function manager(array $overrides = []): BulkCacheManager
@@ -640,7 +861,7 @@ final class RedisProtocolSuite
 
     private function configuration(array $overrides = []): array
     {
-        return array_replace(require dirname(__DIR__, 2).'/config/bulk-cache.php', [
+        return array_replace(require ($this->configurationPath ?? dirname(__DIR__, 2).'/config/bulk-cache.php'), [
             'driver' => 'redis', 'prefix' => $this->prefix, 'connection' => 'default',
         ], $overrides);
     }
