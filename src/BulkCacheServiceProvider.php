@@ -2,6 +2,7 @@
 
 namespace GogoSpace\BulkCache;
 
+use GogoSpace\BulkCache\Console\DiagnoseCommand;
 use GogoSpace\BulkCache\Exceptions\ConfigurationException;
 use GogoSpace\BulkCache\Http\RefreshMiddleware;
 use GogoSpace\BulkCache\Support\Clock;
@@ -22,6 +23,9 @@ final class BulkCacheServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        if ($this->app->runningInConsole()) {
+            $this->commands([DiagnoseCommand::class]);
+        }
         $this->publishes([__DIR__.'/../config/bulk-cache.php' => config_path('bulk-cache.php')], 'bulk-cache-config');
         $this->app->afterResolving(Kernel::class, function ($kernel): void {
             if (! $kernel instanceof \Illuminate\Foundation\Http\Kernel) {

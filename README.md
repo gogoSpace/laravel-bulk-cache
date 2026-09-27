@@ -2,6 +2,8 @@
 
 **Beta release.** The public API and stored cache format may change before 1.0. The package has automated test coverage but no established production track record.
 
+Changes in this release are listed in the [changelog](CHANGELOG.md). Read the [upgrade procedure](docs/upgrade.md) when updating an existing installation.
+
 Read a set of cached items and load the missing items together. Each item has its own identity and lifetime. Use explicit dimensions for tenant, user, locale, or any other input that changes the result.
 
 The package adds `rememberMany` and `flexibleMany` alongside Laravel Cache. It includes a portable driver and a Redis driver with atomic checks before publishing loaded values. License: [MIT](LICENSE).
@@ -14,7 +16,7 @@ The beta is available from the public GitHub repository. Until the package is li
 
 ```shell
 composer config repositories.bulk-cache vcs https://github.com/gogoSpace/laravel-bulk-cache
-composer require gogospace/laravel-bulk-cache:0.1.0-beta.1
+composer require gogospace/laravel-bulk-cache:0.1.0-beta.2
 ```
 
 Laravel discovers the service provider automatically. Publishing configuration is optional:
@@ -96,7 +98,12 @@ Complete synthetic examples show [a public catalog with per-user overlays](examp
 - [Configuration and stores](docs/configuration.md)
 - [User and tenant scope](docs/scopes.md)
 - [Invalidation and source consistency](docs/invalidation.md)
+- [Recovery after a committed write and failed invalidation](docs/recovery.md)
+- [Dataset design and legacy cache transitions](docs/dataset-design.md)
+- [Aggregate operational events](docs/observability.md)
 - [HTTP defer and queue loaders](docs/lifecycle.md)
 - [Guarantees and compatibility](docs/guarantees.md)
 - [Errors and troubleshooting](docs/errors.md)
 - [Testing and measurements](docs/testing.md)
+- [Upgrade and rollback](docs/upgrade.md)
+- [Retention and physical removal](docs/retention.md)

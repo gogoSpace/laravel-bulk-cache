@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use GogoSpace\BulkCache\BulkCacheServiceProvider;
+use GogoSpace\BulkCache\Tools\Distribution;
 use GogoSpace\BulkCache\Tools\Verification;
 use Illuminate\Cache\CacheServiceProvider;
 use Illuminate\Config\Repository;
@@ -11,10 +12,36 @@ use Illuminate\Foundation\Application;
 use Illuminate\Queue\QueueServiceProvider;
 use Illuminate\Support\Facades\Facade;
 
-require dirname(__DIR__).'/vendor/autoload.php';
 require __DIR__.'/Support/Verification.php';
+require __DIR__.'/Support/Distribution.php';
 
-$root = dirname(__DIR__);
+$rootDirectory = dirname(__DIR__);
+if (($argv[1] ?? null) === null) {
+    $distribution = Distribution::create($rootDirectory);
+    $evidenceDirectory = Verification::evidenceDirectory($rootDirectory);
+    $smokeReportPath = $evidenceDirectory.'/consumer-result.json';
+    Verification::require(is_file($smokeReportPath), 'Run composer smoke before docs:check to prepare the exact installed consumers.');
+    $smoke = Verification::json($smokeReportPath);
+    Verification::require(($smoke['commit'] ?? null) === $distribution['commit'] && ($smoke['archive_sha256'] ?? null) === $distribution['sha256'], 'Consumer smoke does not match this commit and archive. Run composer smoke again.');
+    Verification::require(count($smoke['applications'] ?? []) === 2, 'Documentation requires both Laravel consumers.');
+    $reports = [];
+    foreach ($smoke['applications'] as $consumer) {
+        $consumerDirectory = $consumer['directory'];
+        Distribution::verifyInstallation($distribution, $consumerDirectory);
+        $reportPath = $evidenceDirectory.'/logs/docs-'.basename($consumerDirectory).'.json';
+        Verification::run([PHP_BINARY, __FILE__, '--installed', $consumerDirectory.'/vendor/gogospace/laravel-bulk-cache', $consumerDirectory.'/vendor/autoload.php', $reportPath], $rootDirectory, $evidenceDirectory.'/logs/docs-'.basename($consumerDirectory).'.log');
+        $reports[] = Verification::json($reportPath);
+    }
+    $frameworkMajors = array_map(static fn (array $report): int => (int) $report['framework'], $reports);
+    sort($frameworkMajors);
+    Verification::require($frameworkMajors === [12, 13], 'Installed documentation must execute on Laravel 12 and 13.');
+    Verification::writeJson($evidenceDirectory.'/docs-result.json', ['commit' => $distribution['commit'], 'archive_sha256' => $distribution['sha256'], 'applications' => $reports, 'status' => 'passed']);
+    echo "Installed README, documentation and all examples passed on both exact-archive Laravel consumers.\n";
+    exit(0);
+}
+Verification::require(in_array($argv[1], ['--installed', '--example'], true), 'Unsupported documentation verification mode.');
+$root = $argv[2];
+require $argv[3];
 $application = new Application($root);
 $application->instance('config', new Repository([
     'app' => ['name' => 'Documentation', 'env' => 'testing', 'key' => 'documentation-only'],
@@ -28,6 +55,12 @@ $application->register(CacheServiceProvider::class);
 $application->register(QueueServiceProvider::class);
 $application->register(BulkCacheServiceProvider::class);
 $application->boot();
+
+if ($argv[1] === '--example') {
+    $result = require $root.'/examples/'.$argv[4];
+    Verification::writeJson($argv[5], $result);
+    exit(0);
+}
 
 $documents = array_merge([$root.'/README.md'], glob($root.'/docs/*.md'));
 $blocksByFile = [];
@@ -76,10 +109,10 @@ $execute($lifecycle[2]);
 
 $results = [];
 foreach (glob($root.'/examples/*.php') as $example) {
-    $result = (static function (string $path): mixed {
-        return require $path;
-    })($example);
-    $results[basename($example)] = $result;
+    $exampleName = basename($example);
+    $resultPath = dirname($argv[4]).'/'.basename(dirname($argv[3])).'-'.hash('sha256', $root).'-'.$exampleName.'.json';
+    Verification::run([PHP_BINARY, __FILE__, '--example', $root, $argv[3], $exampleName, $resultPath], $rootDirectory, $resultPath.'.log');
+    $results[$exampleName] = Verification::json($resultPath);
 }
 Verification::require($results['quickstart.php'] === $quickstart, 'Bundled quickstart failed.');
 $catalog = $results['catalog.php'];
@@ -89,5 +122,9 @@ Verification::require($catalog['views']['bob'][102]['favorite'] === true && $cat
 $model = $results['read-model.php'];
 Verification::require($model['same_values'] === true && $model['source_calls'] === 1 && $model['values'][10]['completed'] === 30 && $model['values'][20]['completed'] === 60, 'Read-model example failed.');
 
-Verification::writeJson($root.'/research/execution/logs/docs.json', ['php' => PHP_VERSION, 'documents' => count($documents), 'relative_links' => $linkCount, 'executed_examples' => array_keys($results), 'readme_quickstart' => $quickstart, 'status' => 'passed']);
+foreach (['recovery.php', 'dataset-design.php', 'observability.php', 'retention.php'] as $exampleName) {
+    Verification::require(($results[$exampleName]['status'] ?? null) === 'passed', 'The application integration example did not pass: '.$exampleName);
+}
+
+Verification::writeJson($argv[4], ['framework' => Application::VERSION, 'php' => PHP_VERSION, 'documents' => count($documents), 'relative_links' => $linkCount, 'executed_examples' => array_keys($results), 'readme_quickstart' => $quickstart, 'status' => 'passed']);
 echo 'Documentation passed: '.count($documents).' documents, '.$linkCount." relative links, README snippets and all bundled examples executed.\n";

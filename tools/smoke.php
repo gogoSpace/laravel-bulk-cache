@@ -10,7 +10,9 @@ require __DIR__.'/Support/Distribution.php';
 
 $rootDirectory = dirname(__DIR__);
 $distribution = Distribution::create($rootDirectory);
-$consumerRoot = Verification::directory($rootDirectory.'/research/execution/consumers');
+$portablePhp = Verification::portablePhp($rootDirectory);
+Verification::require(PHP_VERSION_ID >= 80400, 'Consumer verification requires PHP 8.4 or newer to exercise both Laravel 12 and 13.');
+$consumerRoot = Verification::directory(Verification::evidenceDirectory($rootDirectory).'/consumers');
 $report = ['commit' => $distribution['commit'], 'archive_sha256' => $distribution['sha256'], 'php' => PHP_VERSION, 'applications' => []];
 $defaultPrefixes = [];
 
@@ -20,13 +22,13 @@ foreach ([12, 13] as $majorVersion) {
         Verification::run(['composer', 'create-project', 'laravel/laravel', $consumerDirectory, $majorVersion.'.*', '--no-dev', '--prefer-dist', '--no-interaction'], $rootDirectory, $consumerRoot.'/create-'.$majorVersion.'.log');
     }
     Distribution::install($distribution, $consumerDirectory);
-    $artisan = static function (array $arguments) use ($consumerDirectory): string {
-        return Verification::run([PHP_BINARY, '-n', 'artisan', ...$arguments, '--no-ansi', '--no-interaction'], $consumerDirectory, $consumerDirectory.'/command-'.str_replace(':', '-', $arguments[0]).'.log');
+    $artisan = static function (array $arguments) use ($consumerDirectory, $portablePhp): string {
+        return Verification::run([...$portablePhp, 'artisan', ...$arguments, '--no-ansi', '--no-interaction'], $consumerDirectory, $consumerDirectory.'/command-'.str_replace(':', '-', $arguments[0]).'.log');
     };
     $artisan(['config:clear']);
     $artisan(['vendor:publish', '--provider=GogoSpace\BulkCache\BulkCacheServiceProvider', '--force']);
     Verification::require(is_file($consumerDirectory.'/config/bulk-cache.php'), 'Provider did not publish the package configuration.');
-    $defaultPrefixes[] = trim(Verification::run([PHP_BINARY, '-n', '-r', <<<'PHP'
+    $defaultPrefixes[] = trim(Verification::run([...$portablePhp, '-r', <<<'PHP'
 require 'vendor/autoload.php';
 $application = require 'bootstrap/app.php';
 $application->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
@@ -68,7 +70,13 @@ PHP);
     Verification::run(['composer', 'dump-autoload', '--no-dev', '--optimize', '--no-interaction'], $consumerDirectory, $consumerDirectory.'/autoload.log');
     $artisan(['migrate:fresh', '--force']);
     $artisan(['config:cache']);
-    Verification::run([PHP_BINARY, '-n', '-r', "require 'vendor/autoload.php'; if (class_exists('Redis') || class_exists('Predis\\\\Client') || class_exists('PHPUnit\\\\Framework\\\\TestCase') || class_exists('Orchestra\\\\Testbench\\\\TestCase')) { exit(1); }"], $consumerDirectory, $consumerDirectory.'/optional-dependencies.log');
+    $diagnostics = json_decode(trim($artisan(['bulk-cache:diagnose', '--json'])), true, flags: JSON_THROW_ON_ERROR);
+    Verification::require($diagnostics['valid'] === true && $diagnostics['availability'] === 'not_checked', 'Installed diagnostic command did not report configuration-only validation.');
+    foreach ($diagnostics['datasets'] as $dataset) {
+        Verification::require(preg_match('/^[a-f0-9]{16}$/', $dataset['namespace_fingerprint']) === 1, 'Diagnostics must report a namespace fingerprint.');
+    }
+    Verification::require(! str_contains(json_encode($diagnostics, JSON_THROW_ON_ERROR), 'bulk-smoke-'.basename($consumerDirectory)), 'Diagnostics exposed the raw namespace.');
+    Verification::run([...$portablePhp, '-r', "require 'vendor/autoload.php'; if (class_exists('Redis') || class_exists('Predis\\\\Client') || class_exists('PHPUnit\\\\Framework\\\\TestCase') || class_exists('Orchestra\\\\Testbench\\\\TestCase')) { exit(1); }"], $consumerDirectory, $consumerDirectory.'/optional-dependencies.log');
     foreach (['array', 'file', 'database'] as $storeName) {
         $artisan(['bulk-smoke:core', $storeName]);
     }
@@ -92,7 +100,7 @@ PHP);
         $routerPath = $consumerDirectory.'/bulk-smoke-router.php';
         file_put_contents($routerPath, "<?php\nrequire __DIR__.'/vendor/autoload.php';\n\$application = require __DIR__.'/bootstrap/app.php';\n".($kernelMode === 'legacy' ? "\$application->singleton(Illuminate\\Contracts\\Http\\Kernel::class, App\\Smoke\\LegacyKernel::class);\n" : '')."\$application->handleRequest(Illuminate\\Http\\Request::capture());\n");
         $port = Verification::availablePort();
-        $server = Verification::start([PHP_BINARY, '-n', '-S', '127.0.0.1:'.$port, $routerPath], $consumerDirectory, $consumerDirectory.'/http-'.$kernelMode.'.log');
+        $server = Verification::start([...$portablePhp, '-S', '127.0.0.1:'.$port, $routerPath], $consumerDirectory, $consumerDirectory.'/http-'.$kernelMode.'.log');
         try {
             Verification::await(static function () use ($port): bool {
                 $socket = @stream_socket_client('tcp://127.0.0.1:'.$port, $errorNumber, $errorMessage, 0.1);
@@ -196,7 +204,7 @@ PHP);
     if (is_file($workerReadyPath)) {
         unlink($workerReadyPath);
     }
-    $worker = Verification::start([PHP_BINARY, '-n', 'artisan', 'queue:work', 'database', '--sleep=1', '--tries=3', '--timeout=10', '--max-time=30', '--no-ansi'], $consumerDirectory, $workerLog);
+    $worker = Verification::start([...$portablePhp, 'artisan', 'queue:work', 'database', '--sleep=1', '--tries=3', '--timeout=10', '--max-time=30', '--no-ansi'], $consumerDirectory, $workerLog);
     try {
         $workerIdentifier = proc_get_status($worker)['pid'];
         Verification::await(fn (): bool => is_file($workerReadyPath) && (int) file_get_contents($workerReadyPath) === $workerIdentifier, 'Idle queue worker did not enter its processing loop.');
@@ -212,10 +220,11 @@ PHP);
     Verification::require(count($events('restart')) === 2, 'Replacement worker did not refresh queued data.');
     $installed = Verification::json($consumerDirectory.'/vendor/composer/installed.json')['packages'];
     $framework = array_values(array_filter($installed, fn (array $package): bool => $package['name'] === 'laravel/framework'))[0];
-    $report['applications'][] = ['framework' => $framework['version'], 'directory' => $consumerDirectory, 'no_dev' => true, 'redis_client_loaded' => false, 'stores' => ['array', 'file', 'database-sqlite'], 'http' => ['modern' => [200, 302, 404, 500], 'legacy_without_native_defer' => [200, 302, 404, 500]], 'queue' => ['separate_process', 'duplicate', 'retry', 'restart'], 'config_cached' => true];
+    Verification::require(preg_match('/^v?'.$majorVersion.'\\./', $framework['version']) === 1, 'The consumer installed the wrong Laravel major version.');
+    $report['applications'][] = ['framework' => $framework['version'], 'directory' => $consumerDirectory, 'no_dev' => true, 'redis_client_loaded' => false, 'stores' => ['array', 'file', 'database-sqlite'], 'http' => ['modern' => [200, 302, 404, 500], 'legacy_without_native_defer' => [200, 302, 404, 500]], 'queue' => ['separate_process', 'duplicate', 'retry', 'restart'], 'config_cached' => true, 'diagnostics' => ['valid' => true, 'availability' => 'not_checked', 'namespace_fingerprint_only' => true]];
     echo 'Laravel '.$framework['version']." clean-consumer smoke passed.\n";
 }
 
 Verification::require(count(array_unique($defaultPrefixes)) === 2, 'Independently installed applications received the same default namespace.');
 $report['distinct_application_defaults'] = true;
-Verification::writeJson($rootDirectory.'/research/execution/consumer-result.json', $report);
+Verification::writeJson(Verification::evidenceDirectory($rootDirectory).'/consumer-result.json', $report);

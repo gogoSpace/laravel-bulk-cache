@@ -25,3 +25,9 @@ Share public data under a public scope and cache user-specific flags separately.
 Authorization still belongs to the application. Check access before returning protected data. Neither an explicit user dimension nor a recently cached permission proves that access remains allowed. Queue loaders receive serialized dimensions, not a request or the worker's ambient authentication state. Decide whether current authorization must be rechecked inside the loader.
 
 Include locale, currency, schema version, source revision, or feature variant when it affects the result. Prefixes separate applications and environments; dimensions separate data inside an application. Avoid putting secrets or unnecessary personal data in dimensions even though physical scope identifiers are hashed.
+
+## Require an identity shape
+
+Registered datasets can add a small schema in `config/bulk-cache.php`: `dimensions => ['tenant' => 'int', 'user' => 'int']`. Every listed dimension is required and must have that exact type. Supported types are `int`, `string` and `bool`; null and missing fields fail. Additional dimensions keep the normal identity rules above. An incorrect schema or scope raises `ConfigurationException` at `scope()`, before cache I/O, even when the requested key list is empty.
+
+The executable [observation example](../examples/observability.php) uses a required integer user dimension. Schema validation prevents accidental omission; it does not decide whether the caller is allowed to read that user's data. New schema requirements deliberately change the queued dataset definition; use the [upgrade procedure](upgrade.md) for pending jobs.

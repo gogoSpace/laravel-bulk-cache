@@ -44,9 +44,11 @@ final class RefreshScheduler
 
     public function schedule(string $strategy, Scope $scope, array $keys, Freshness $freshness, callable $callback, Options $options): void
     {
+        $observations = $this->container->make(BulkCacheManager::class)->observations($scope->name, $options);
         if ($strategy === 'queue') {
             foreach (array_chunk($keys, $options->number('batch_size')) as $chunk) {
-                $this->container->make('queue')->connection($options->values['queue_connection'])->push(new RefreshJob($scope->name, $scope->dimensions, $chunk, $freshness->freshFor, $freshness->staleFor, $scope->definition()), '', $options->values['queue']);
+                $dispatch = fn () => $this->container->make('queue')->connection($options->values['queue_connection'])->push(new RefreshJob($scope->name, $scope->dimensions, $chunk, $freshness->freshFor, $freshness->staleFor, $scope->definition()), '', $options->values['queue']);
+                $observations === null ? $dispatch() : $observations->measure('refresh.dispatch', $dispatch, count($chunk));
             }
 
             return;
@@ -55,7 +57,8 @@ final class RefreshScheduler
             throw new ConfigurationException('Deferred refresh exceeds the per-request max_keys limit.');
         }
         $this->scheduledKeys += count($keys);
-        $this->callbacks[] = $callback;
+        $this->callbacks[] = $observations === null ? $callback : fn () => $observations->measure('refresh.defer', $callback, count($keys));
+        $observations?->emit('refresh.schedule', 'success', count($keys));
     }
 
     public function finish(int $status): void
