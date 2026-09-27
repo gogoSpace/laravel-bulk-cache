@@ -106,4 +106,5 @@ Complete synthetic examples show [a public catalog with per-user overlays](examp
 - [Errors and troubleshooting](docs/errors.md)
 - [Testing and measurements](docs/testing.md)
 - [Upgrade and rollback](docs/upgrade.md)
+- [Maintainer release procedure](docs/releasing.md)
 - [Retention and physical removal](docs/retention.md)

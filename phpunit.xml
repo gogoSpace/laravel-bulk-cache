@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <phpunit bootstrap="vendor/autoload.php" colors="true" cacheDirectory=".phpunit.cache" failOnRisky="true" failOnWarning="true" failOnSkipped="true">
-    <testsuites><testsuite name="Package"><directory>tests/Unit</directory><directory>tests/Contract</directory><directory>tests/Examples</directory></testsuite></testsuites>
+    <testsuites><testsuite name="Package"><directory>tests/Unit</directory><directory>tests/Contract</directory><directory>tests/Examples</directory><directory>tests/Release</directory></testsuite></testsuites>
 </phpunit>

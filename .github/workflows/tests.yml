@@ -4,6 +4,15 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      commit:
+        description: Exact commit to verify for a release
+        required: true
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   package:
@@ -22,6 +31,13 @@ jobs:
             testbench: '^11.0'
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+          persist-credentials: false
+      - name: Verify checked out commit
+        env:
+          EXPECTED_COMMIT: ${{ inputs.commit || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
@@ -41,6 +57,13 @@ jobs:
         php: ['8.4', '8.5']
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+          persist-credentials: false
+      - name: Verify checked out commit
+        env:
+          EXPECTED_COMMIT: ${{ inputs.commit || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
