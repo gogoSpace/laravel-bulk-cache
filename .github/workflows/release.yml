@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Prerelease version without v, such as 0.1.0-beta.3
+        required: true
+        type: string
+      commit:
+        description: Full 40-character SHA of the current main commit
+        required: true
+        type: string
+      publish:
+        description: Create the tag and prerelease after verification (false verifies only)
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.request.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+      - name: Validate release request
+        id: request
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_COMMIT: ${{ inputs.commit }}
+          RELEASE_WORKFLOW_COMMIT: ${{ github.workflow_sha }}
+        run: |
+          php <<'PHP'
+          <?php
+          $version = getenv('RELEASE_VERSION');
+          $commit = getenv('RELEASE_COMMIT');
+          $validVersion = preg_match('/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-(alpha|beta|rc)\.[1-9][0-9]*$/D', $version) === 1;
+          $validCommit = preg_match('/^[a-f0-9]{40}$/D', $commit) === 1;
+          if (! $validVersion || ! $validCommit || getenv('GITHUB_REF') !== 'refs/heads/main'
+              || $commit !== getenv('GITHUB_SHA') || $commit !== getenv('RELEASE_WORKFLOW_COMMIT')
+              || getenv('GITHUB_REPOSITORY') !== 'gogoSpace/laravel-bulk-cache') {
+              file_put_contents('php://stderr', "Release requires a valid prerelease version and the exact main workflow commit.\n");
+              exit(1);
+          }
+          file_put_contents(getenv('GITHUB_OUTPUT'), 'commit='.$commit."\n", FILE_APPEND);
+          PHP
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+
+  verify:
+    needs: prepare
+    uses: ./.github/workflows/tests.yml
+    with:
+      commit: ${{ needs.prepare.outputs.commit }}
+
+  release-acceptance:
+    name: Release acceptance
+    if: ${{ always() }}
+    needs: [prepare, verify]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require complete release verification
+        env:
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          VERIFICATION_RESULT: ${{ needs.verify.result }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+          RELEASE_PUBLISH: ${{ inputs.publish }}
+        run: |
+          if [ "$PREPARE_RESULT" != success ] || [ "$VERIFICATION_RESULT" != success ]; then
+            echo 'Release verification did not complete successfully.' >&2
+            exit 1
+          fi
+          printf 'Full release verification passed for `%s`.\n' "$RELEASE_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$RELEASE_PUBLISH" != true ]; then
+            echo 'Verification only: no tag or release is created. Version metadata and existing-tag eligibility are checked only when publication is requested.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  publish:
+    name: Publish prerelease
+    needs: [prepare, verify, release-acceptance]
+    if: ${{ inputs.publish && needs.prepare.result == 'success' && needs.verify.result == 'success' && needs.release-acceptance.result == 'success' }}
+    permissions:
+      contents: write
+      actions: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+      - name: Publish verified commit
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+          RELEASE_VERIFICATION_RESULT: ${{ needs.verify.result }}
+          RELEASE_GATE_RESULT: ${{ needs.release-acceptance.result }}
+          GH_TOKEN: ${{ github.token }}
+        run: php tools/release.php
