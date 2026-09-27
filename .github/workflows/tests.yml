@@ -1,0 +1,33 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - php: '8.3'
+            testbench: '^10.0'
+          - php: '8.4'
+            testbench: '^10.0'
+          - php: '8.4'
+            testbench: '^11.0'
+          - php: '8.5'
+            testbench: '^11.0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: redis, pdo_sqlite, pcntl, posix
+          coverage: none
+      - run: sudo apt-get update && sudo apt-get install -y redis-server
+      - run: composer require --dev 'orchestra/testbench:${{ matrix.testbench }}' --no-interaction --with-all-dependencies
+      - run: composer check
+      - run: composer test:concurrency
+      - run: composer benchmark:smoke
