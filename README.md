@@ -1,12 +1,13 @@
-# Laravel Bulk Cache
+# ![Laravel Bulk Cache by gogoSpace — BETA. Cache individual items. Load missing ones in batches.](docs/assets/readme-hero-beta.png)
 
-**Beta release.** The public API and stored cache format may change before 1.0. The package has automated test coverage but no established production track record.
+Read a set of keys, reuse cached values, and load missing items in batches. Each item is cached separately, so requests with overlapping keys can reuse the same data.
 
-Changes in this release are listed in the [changelog](CHANGELOG.md). Read the [upgrade procedure](docs/upgrade.md) when updating an existing installation.
+Laravel Bulk Cache adds `rememberMany` and `flexibleMany` alongside Laravel Cache, with explicit scopes for tenant, user, or locale, per-item invalidation, and optional stale-value refresh. The default driver uses your Laravel cache store; it needs no Redis or queue worker.
 
-Read a set of cached items and load the missing items together. Each item has its own identity and lifetime. Use explicit dimensions for tenant, user, locale, or any other input that changes the result.
+[Quickstart](#quickstart) · [Documentation](#documentation) · [Changelog](CHANGELOG.md) · [MIT license](LICENSE)
 
-The package adds `rememberMany` and `flexibleMany` alongside Laravel Cache. It includes a portable driver and a Redis driver with atomic checks before publishing loaded values. License: [MIT](LICENSE).
+> [!WARNING]
+> **Beta software.** The public API and stored cache format may change before 1.0. The package has automated test coverage but no established production track record. Read the [upgrade procedure](docs/upgrade.md) when updating an existing installation.
 
 ## Requirements and installation
 
