@@ -1,5 +1,7 @@
 # Guarantees and compatibility
 
+This is a beta release. The behavior below describes the implemented contract and tested scenarios; it does not establish production maturity. The public API and stored cache format may change before 1.0.
+
 | Behavior | Portable | Redis |
 |---|---|---|
 | Per-item values, bounded loader chunks, explicit scope | Yes | Yes |
@@ -20,9 +22,9 @@ Waits and loading windows are bounded. A lost or expired producer may lead to re
 
 Freshness timestamps use the producer PHP process's wall clock and are compared with the reader's wall clock. Synchronize clocks across application hosts. Clock skew or a backward wall-clock jump can extend apparent freshness; monotonic operation budgets do not remove that limitation. Redis ownership expiry uses Redis's own clock.
 
-## Supported configurations
+## Tested configurations and limits
 
-PHP constraints are `^8.3`; Illuminate components allow Laravel 12 and 13. Local execution uses PHP 8.4.7. The contract suite runs Laravel array, file, and database cache stores; SQLite is the verified database engine. Redis 7.2 is the verified server baseline: the suite runs an isolated Redis 7.2.8 primary separately through PhpRedis and Predis. Older Redis releases have not been certified. Local Redis client execution used PhpRedis 6.3.0 and Predis 3.6.1 with PHP 8.4.7. The complete Redis scenario suite also passed against the extracted package installed in Laravel 12.69.2 and 13.33.0; package and framework class origins were verified in each consumer. Separate consumer processes ran without Redis clients for portable, HTTP, and queue verification. These tests do not represent every combination of Laravel, PHP, and Redis.
+PHP constraints are `^8.3`; Illuminate components allow Laravel 12 and 13. Local execution uses PHP 8.4.7. The contract suite runs Laravel array, file, and database cache stores; SQLite is the verified database engine. Redis 7.2 is the verified server baseline: the suite runs an isolated Redis 7.2.8 primary separately through PhpRedis and Predis. Older Redis releases have not been tested. Local Redis client execution used PhpRedis 6.3.0 and Predis 3.6.1 with PHP 8.4.7. The complete Redis scenario suite also passed against the extracted package installed in Laravel 12.69.2 and 13.33.0; package and framework class origins were verified in each consumer. Separate consumer processes ran without Redis clients for portable, HTTP, and queue verification. These tests do not represent every combination of Laravel, PHP, and Redis.
 
 The Redis adapter uses raw commands and does not change client options on a shared connection. Tests cover PhpRedis serializers NONE, PHP, and JSON with compression NONE, plus client prefixes and Predis prefixes. Additional serializer and compression extensions have not been verified.
 

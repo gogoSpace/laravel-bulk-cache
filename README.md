@@ -1,5 +1,7 @@
 # Laravel Bulk Cache
 
+**Beta release.** The public API and stored cache format may change before 1.0. The package has automated test coverage but no established production track record.
+
 Read a set of cached items and load the missing items together. Each item has its own identity and lifetime. Use explicit dimensions for tenant, user, locale, or any other input that changes the result.
 
 The package adds `rememberMany` and `flexibleMany` alongside Laravel Cache. It includes a portable driver and a Redis driver with atomic checks before publishing loaded values. License: [MIT](LICENSE).
@@ -8,10 +10,11 @@ The package adds `rememberMany` and `flexibleMany` alongside Laravel Cache. It i
 
 PHP 8.3 or later and Laravel 12 or 13. The portable driver uses your Laravel cache store; it needs no Redis or queue worker. See [compatibility and guarantees](docs/guarantees.md) for tested environments and limits.
 
-Install with Composer:
+The beta is available from the public GitHub repository. Until the package is listed on Packagist, register the repository and install the exact beta version:
 
 ```shell
-composer require gogospace/laravel-bulk-cache:^1.0
+composer config repositories.bulk-cache vcs https://github.com/gogoSpace/laravel-bulk-cache
+composer require gogospace/laravel-bulk-cache:0.1.0-beta.1
 ```
 
 Laravel discovers the service provider automatically. Publishing configuration is optional:
