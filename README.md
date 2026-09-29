@@ -13,10 +13,9 @@ Laravel Bulk Cache adds `rememberMany` and `flexibleMany` alongside Laravel Cach
 
 PHP 8.3 or later and Laravel 12 or 13. The portable driver uses your Laravel cache store; it needs no Redis or queue worker. See [compatibility and guarantees](docs/guarantees.md) for tested environments and limits.
 
-The beta is available from the public GitHub repository. Until the package is listed on Packagist, register the repository and install the exact beta version:
+Install the exact beta version from [Packagist](https://packagist.org/packages/gogospace/laravel-bulk-cache):
 
 ```shell
-composer config repositories.bulk-cache vcs https://github.com/gogoSpace/laravel-bulk-cache
 composer require gogospace/laravel-bulk-cache:0.1.0-beta.2
 ```
 
