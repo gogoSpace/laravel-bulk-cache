@@ -46,7 +46,14 @@ final class IdentityTest extends TestCase
 
     public static function invalidKeys(): array
     {
-        return [[true], [null], [1.5], [[]], [new \stdClass], [str_repeat('a', 1025)]];
+        return [
+            'boolean key' => [true],
+            'null key' => [null],
+            'float key' => [1.5],
+            'array key' => [[]],
+            'object key' => [new \stdClass],
+            'oversized key' => [str_repeat('a', 1025)],
+        ];
     }
 
     #[DataProvider('invalidDimensions')]
@@ -59,11 +66,11 @@ final class IdentityTest extends TestCase
     public static function invalidDimensions(): array
     {
         return [
-            [['nested' => ['tenant' => 7]]],
-            [['fraction' => 1.5]],
-            [[0 => 'unnamed']],
-            [['long' => str_repeat('x', 1025)]],
-            [array_fill_keys(array_map(fn (int $number): string => 'dimension-'.$number, range(1, 33)), true)],
+            'nested value' => [['nested' => ['tenant' => 7]]],
+            'float value' => [['fraction' => 1.5]],
+            'unnamed dimension' => [[0 => 'unnamed']],
+            'oversized value' => [['long' => str_repeat('x', 1025)]],
+            'too many dimensions' => [array_fill_keys(array_map(fn (int $number): string => 'dimension-'.$number, range(1, 33)), true)],
         ];
     }
 }

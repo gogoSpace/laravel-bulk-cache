@@ -17,13 +17,19 @@ final readonly class Scope
         private Options $options,
     ) {}
 
-    /** @param iterable<int|string> $keys @return array<int|string,mixed> */
+    /**
+     * @param  iterable<int|string>  $keys
+     * @return array<int|string, mixed>
+     */
     public function rememberMany(iterable $keys, int $seconds, ?callable $loader = null): array
     {
         return $this->execute($keys, Freshness::seconds($seconds), $loader, 'inline');
     }
 
-    /** @param iterable<int|string> $keys @return array<int|string,mixed> */
+    /**
+     * @param  iterable<int|string>  $keys
+     * @return array<int|string, mixed>
+     */
     public function flexibleMany(iterable $keys, Freshness $freshness, ?callable $loader = null, string $refresh = 'auto'): array
     {
         return $this->execute($keys, $freshness, $loader, $refresh);

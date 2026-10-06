@@ -341,7 +341,10 @@ LUA, $physical, $owners, 'release');
         $this->evaluate("return redis.call('SET', KEYS[1], ARGV[1])", [$this->generationKey($scope)], [bin2hex(random_bytes(16))], 'invalidate');
     }
 
-    /** @param list<string> $keys @param list<string> $arguments */
+    /**
+     * @param  list<string>  $keys
+     * @param  list<string>  $arguments
+     */
     private function evaluate(string $script, array $keys, array $arguments = [], string $phase = 'read'): mixed
     {
         return $this->command(['EVAL', $script, (string) count($keys), ...$keys, ...$arguments], $phase);

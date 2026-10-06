@@ -19,7 +19,10 @@ final class Engine
 {
     public function __construct(private Clock $clock, private LoadContext $context) {}
 
-    /** @param list<string> $keys @return array{values: array<int|string,mixed>, stale: list<string>} */
+    /**
+     * @param  list<string>  $keys
+     * @return array{values: array<int|string, mixed>, stale: list<string>}
+     */
     public function read(Store $store, string $scope, array $keys, Freshness $freshness, callable $loader, Options $options, bool $allowStale, ?Observations $observations = null): array
     {
         $confirmedPublications = 0;

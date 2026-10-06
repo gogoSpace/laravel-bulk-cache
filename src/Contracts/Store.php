@@ -6,7 +6,10 @@ use GogoSpace\BulkCache\Support\Claim;
 
 interface Store
 {
-    /** @param list<string> $keys @return array<string, string|null> */
+    /**
+     * @param  list<string>  $keys
+     * @return array<string, string|null>
+     */
     public function readMany(string $scope, array $keys): array;
 
     public function claim(string $scope, string $key, int $leaseMilliseconds): ?Claim;

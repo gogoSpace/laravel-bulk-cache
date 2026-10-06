@@ -65,7 +65,14 @@ final class EnvelopeTest extends TestCase
         $cycle = [];
         $cycle['self'] = &$cycle;
 
-        return [[new \stdClass], [new \RuntimeException('Private payload')], [static fn (): int => 1], [INF], [NAN], [$cycle]];
+        return [
+            'object value' => [new \stdClass],
+            'exception value' => [new \RuntimeException('Private payload')],
+            'closure value' => [static fn (): int => 1],
+            'infinite value' => [INF],
+            'not a number' => [NAN],
+            'recursive array' => [$cycle],
+        ];
     }
 
     public function test_oversized_values_are_rejected(): void
@@ -84,12 +91,12 @@ final class EnvelopeTest extends TestCase
     public static function corruptEnvelopes(): array
     {
         return [
-            ['not serialized'],
-            [serialize([1, new \stdClass, 100.0, 60, 0, false])],
-            [serialize([2, 'unsupported format', 100.0, 60, 0, false])],
-            [serialize([1, 'invalid clock', INF, 60, 0, false])],
-            [serialize([1, 'invalid duration', 100.0, -1, 0, false])],
-            [serialize([1, 'missing fields'])],
+            'invalid serialization' => ['not serialized'],
+            'object payload' => [serialize([1, new \stdClass, 100.0, 60, 0, false])],
+            'unsupported format' => [serialize([2, 'unsupported format', 100.0, 60, 0, false])],
+            'non-finite clock' => [serialize([1, 'invalid clock', INF, 60, 0, false])],
+            'negative duration' => [serialize([1, 'invalid duration', 100.0, -1, 0, false])],
+            'missing fields' => [serialize([1, 'missing fields'])],
         ];
     }
 }

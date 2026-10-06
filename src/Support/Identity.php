@@ -6,7 +6,10 @@ use GogoSpace\BulkCache\Exceptions\InvalidKeyException;
 
 final class Identity
 {
-    /** @param iterable<mixed> $keys @return list<string> */
+    /**
+     * @param  iterable<mixed>  $keys
+     * @return list<string>
+     */
     public static function keys(iterable $keys, int $limit): array
     {
         $unique = [];
