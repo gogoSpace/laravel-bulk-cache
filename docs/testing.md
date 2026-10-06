@@ -1,6 +1,12 @@
 # Testing and measurements
 
-From a development checkout on PHP 8.4.1 or later, install the locked development dependencies with `composer install`. On PHP 8.3, use `composer update` to resolve compatible development dependencies. Then run:
+From a development checkout on PHP 8.4.1 or later, install the locked development dependencies with `composer install`. On PHP 8.3, use `composer update` to resolve compatible development dependencies.
+
+For `composer check`, enable `pdo_sqlite` for database-store tests and keep Git and Bash available for release-workflow tests. Composer checks the remaining PHP extension requirements when installing the development tools.
+
+The complete command list below also requires PHP 8.4 or later for the Laravel 13 consumers, the `redis` (PhpRedis), `pcntl`, `posix` and `zip` extensions, and `redis-server` in `PATH`. Predis is included in the development dependencies. Consumer creation and upgrade checks need access to Composer package sources and the public beta.1 Git source when these are not already available locally.
+
+Then run:
 
 ```shell
 composer check

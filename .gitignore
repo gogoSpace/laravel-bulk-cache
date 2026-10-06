@@ -4,6 +4,8 @@
 /.phpunit.result.cache
 /.phpstan.cache/
 /.idea/
-/.DS_Store
+.DS_Store
 /.env
+/.env.*
+!/.env.example
 /.runtime/

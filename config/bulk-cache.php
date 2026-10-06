@@ -14,12 +14,20 @@ return [
     'dimensions' => [],
     // Dispatch safe, aggregate CacheEvent observations through Laravel events.
     'events' => false,
+    // Maximum keys in each loading window.
     'batch_size' => 100,
+    // Maximum input entries per call, including duplicates.
     'max_keys' => 10000,
+    // Maximum serialized cache envelope per item, in bytes.
     'max_payload_bytes' => 1048576,
+    // Maximum age of explicit Missing::Value results, in seconds.
     'negative_seconds' => 15,
+    // Redis producer ownership lifetime, in milliseconds. No automatic renewal.
     'lease_milliseconds' => 10000,
+    // Cumulative polling sleep budget, in milliseconds.
     'wait_milliseconds' => 2000,
+    // Cooperative operation budget, including loader time, in milliseconds.
+    // Configure source timeouts separately. This cannot interrupt blocking I/O.
     'operation_milliseconds' => 15000,
     'queue_connection' => null,
     'queue' => null,

@@ -8,6 +8,7 @@ $products = ['101' => ['name' => 'Notebook'], '102' => ['name' => 'Pencil']];
 $favorites = ['alice' => ['101'], 'bob' => ['102']];
 $publicLoads = 0;
 $public = BulkCache::scope('example-public-products-v1', ['tenant' => 'demo', 'locale' => 'en']);
+// Reset the example scope for repeatable runs. Remove this from normal application reads.
 $public->invalidateScope();
 $loadProducts = function (array $keys) use ($products, &$publicLoads): array {
     $publicLoads++;
@@ -23,6 +24,7 @@ $views = [];
 foreach (['alice', 'bob', 'guest'] as $subject) {
     // In an application, authorize first and copy the subject into explicit dimensions.
     $overlay = BulkCache::scope('example-favorites-v1', ['tenant' => 'demo', 'user' => $subject]);
+    // Reset each example user's scope for repeatable runs. Remove this from normal application reads.
     $overlay->invalidateScope();
     $flags = $overlay->rememberMany([101, 102], 60, function (array $keys) use ($subject, $favorites): array {
         $values = [];

@@ -17,6 +17,7 @@ $loadMetrics = function (array $keys) use (&$sourceCalls): array {
 };
 
 $metrics = BulkCache::scope('example-order-metrics-v1', ['tenant' => 'demo', 'period' => '2026-09']);
+// Reset the example scope for repeatable runs. Remove this from normal application reads.
 $metrics->invalidateScope();
 $freshness = Freshness::seconds(freshFor: 60, staleFor: 300);
 $first = $metrics->flexibleMany([10, 20], $freshness, $loadMetrics, refresh: 'inline');
